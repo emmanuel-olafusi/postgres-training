@@ -1,0 +1,91 @@
+How to enable remote access to PostgreSQL server
+
+
+Prerequisites : 
+
+systemctl status firewalld
+
+Overview
+
+When you install PostgreSQL, by default connection to the Postgres by using TCP/IP is not allowed.
+
+Installation steps for postgreSQl-13 on linux
+
+
+sudo yum install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+sudo yum install -y postgresql13-server
+sudo /usr/pgsql-10/bin/postgresql-13-setup initdb
+sudo systemctl enable postgresql-13
+sudo systemctl start postgresql-13
+
+
+Demo setup
+***********
+IP address        hostname      postgres  Version     Role
+**********        **********    ****************     *****
+192.168.1.61       linux2          12                Server
+192.168.1.71       linux1          12                Client
+
+
+By default postgres database user who is superuser will not be having any password .
+
+How to set the password
+
+sudo su - postgres
+
+psql
+# alter user postgres password 'password';
+
+# psql -U postgres -h 192.168.1.61
+
+When you try to connect Postgres database from a client  using psql command,
+you  get “psql: could not connect to server: Connection refused” error message.
+
+-bash-4.2$ psql -U postgres -h 192.168.1.107
+psql: error: could not connect to server: Connection refused
+Is the server running on host "192.168.1.107" and accepting
+TCP/IP connections on port 5432?
+-bash-4.2$
+
+
+1. Modify pg_hba.conf to add Client Authentication Record
+
+On the PostgreSQL database server, by default, you’ll notice the following records towards the end of the
+/var/lib/pgsql/12/data/pg_hba.conf. As indicated below, it accepts connections only from the localhost.
+
+# IPv4 local connections:
+host    all         all         127.0.0.1/32          trust
+# IPv6 local connections:
+host    all         all         ::1/128               ident
+Add the following line to the pg_hba.conf server. This will allow connection from 192.168.1.56
+
+host    all         all         192.168.1.56/24    md5
+
+
+2. Change the Listen Address in PostgreSQL.conf
+
+On the PostgreSQL database server, by default, the listen address will be localhost in the postgresql.conf file
+as shown below.
+
+# grep listen /var/lib/pgsql/12/data/postgresql.conf
+listen_addresses = 'localhost'
+Modify this line and give IP address of server. If you have multiple interfaces on the server, you can also specify a specific interface to be listened.
+
+Verify updated details.
+-bash-4.2$ grep listen /var/lib/pgsql/12/data/postgresql.conf
+listen_addresses = '192.168.1.61'               # what IP address(es) to listen on;
+-bash-4.2$
+
+
+3. Restart PostgreSQL server to apply the changes:
+
+systemctl restart postgresql-12
+systemctl status postgresql-12
+
+mention pg_ctl
+
+4. Test the Remote Connection
+
+Now, login to the client machine 192.168.1.71, and perform the psql remote connection to the PostgreSQL database server (192.168.1.61) as shown below.
+
+# psql -U postgres -h 192.168.1.107
