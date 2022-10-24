@@ -1,0 +1,160 @@
+Managing Kernel Parameters for PostgreSQL
+
+PostgreSQL can exhaust various operating system resource limits if they are not configured properly.
+
+Just have a below In below mentioned scenario.
+
+You have multiple copies of the PostgreSQL instances server are running on the same host/ In case your PostgreSQL database size is very large.
+
+sudo sysctl -a|grep -i SHMMAX
+sudo sysctl -a|grep -i SHMMIN
+sudo sysctl -a|grep -i SHMALL
+sudo sysctl -a|grep -i SEMMNI
+sudo sysctl -a|grep -i SEMMNS
+
+Shared Memory and Semaphores settings.
+
+s#	Name
+Description
+Values needed to run one PostgreSQL instance
+1	SHMMAX
+Maximum size of shared memory segment (bytes)
+At least 1kB, but the default is usually much higher
+2
+SHMMIN
+Minimum size of shared memory segment (bytes)
+1
+3
+SHMALL
+Total amount of shared memory available (bytes or pages)
+same as SHMMAX if bytes, or ceil(SHMMAX/PAGE_SIZE) if pages, plus room for other applications
+4	SHMSEG
+Maximum number of shared memory segments per process
+only 1 segment is needed, but the default is much higher
+5	SHMMNI
+Maximum number of shared memory segments system-wide
+like SHMSEG plus room for other applications
+6	SEMMNI
+Maximum number of semaphore identifiers (i.e., sets)
+at least ceil((max_connections + autovacuum_max_workers + max_wal_senders + max_worker_processes + 5) / 16) plus room for other applications
+7	SEMMNS
+Maximum number of semaphores system-wide
+ceil((max_connections + autovacuum_max_workers + max_wal_senders + max_worker_processes + 5) / 16) * 17 plus room for other applications
+8	SEMMSL
+Maximum number of semaphores per set
+at least 17
+
+
+
+
+
+
+
+
+On Linux
+
+The default shared memory is ok.
+
+The shared memory size settings can be changed via the sysctl interface.
+
+For example, to allow 16 GB:
+
+$ sysctl -w kernel.shmmax=17179869184
+$ sysctl -w kernel.shmall=4194304
+
+
+it requires reboots to see permanent changes in /etc/sysctl.conf.
+
+
+Resource Limits
+
+Linux enforces various kinds of resource limits that might interfere with the operation of your PostgreSQL server.
+
+For Example
+
+Limits on the number of processes per user.
+The number of open files per process.
+Amount of memory available to each process.
+Each of these have a “hard” and a “soft” limit. T
+The soft limit is what actually counts but it can be changed by the user up to the hard limit.
+The hard limit can only be changed by the root user.
+The system call setrlimit is responsible for setting these parameters.
+The shell's built-in command ulimit (Bourne shells) or limit (csh) is used to control the resource limits from the command line.
+
+Kernels can also have system-wide limits on some resources.
+
+On Linux /proc/sys/fs/file-max determines the maximum number of open files  
+can be changed in /etc/sysctl.conf.
+
+The PostgreSQL server uses one process per connection so you should provide for at least as many processes as allowed connections,
+in addition to what you need for the rest of your system.
+This is usually not a problem but if you run several servers on one machine things might get tight.
+
+The  default limit on open files is often enough to allow many users to coexist on a
+system without issues.
+If you are running many PostgreSQL on a system this is perhaps what you want,
+but on dedicated servers you might want to raise this limit.
+
+Some systems allow individual processes to open large numbers of files;
+if more than a few processes do so then the system-wide limit can easily be exceeded.
+If you find this happening, and you do not want to alter the system-wide limit,
+you can set PostgreSQL's max_files_per_process configuration parameter to limit the consumption of open files.
+
+
+Linux Memory Overcommit
+
+The default virtual memory behavior on Linux is not optimal for PostgreSQL.
+
+Out of Memory: Killed process 12345 (postgres).
+
+postgres process has been terminated due to memory pressure.
+Although existing database connections will continue to function normally,
+no new connections will be accepted.
+To recover, PostgreSQL will need to be restarted.
+
+Increasing the swap space of the operating system can help avoid the problem,
+because the out-of-memory (OOM) killer is invoked only when physical memory and swap space are exhausted.
+
+
+Special considerations for overcommit
+
+You must test to by  lowering down the memory-related configuration parameters, particularly
+shared_buffers
+work_mem
+hash_mem_multiplier.
+
+Sometimes the problem may be caused by allowing too many connections to the postgres. Sometimes it may be better to reduce max_connections use external connection-pooling software like pg_bouncer
+
+you may try to accommodate it by
+sysctl -w vm.overcommit_memory=2
+
+may be tested
+echo -1000 > /proc/self/oom_score_adj
+
+
+Linux Huge Pages settings
+
+To use this feature in PostgreSQL you need a kernel with CONFIG_HUGETLBFS=y and CONFIG_HUGETLB_PAGE=y.
+You will also have to adjust the kernel setting vm.nr_hugepages.
+
+start Postgres without huge pages and check below for estimation.
+
+$ head -1 $PGDATA/postmaster.pid
+4170
+$ pmap 4170 | awk '/rw-s/ && /zero/ {print $2}'
+6490428K
+$ grep ^Hugepagesize /proc/meminfo
+Hugepagesize:       2048 kB
+
+6490428 / 2048 gives approximately 3169.154, so in this example we need at least 3170 huge pages, which we can set with:
+
+$ sysctl -w vm.nr_hugepages=3170
+
+
+To verify the huge page setting on Linux.
+
+$ grep Huge /proc/meminfo
+
+The default behavior for huge pages in PostgreSQL is to use them when possible and to fall back to normal pages when failing. To enforce the use of huge pages, you can set huge_pages to on in Postgresql.conf.
+
+Note that with this setting PostgreSQL will fail to start if not enough huge pages are available.
